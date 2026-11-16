@@ -194,7 +194,7 @@ jobs:
         with:
           path: device/${{ github.event.inputs.DEVICE_PATH }}
 
-         - name: Patch recovery touch input for NX809J
+      - name: Patch recovery touch input for NX809J
         run: |
           set -e
           python3 - <<'PY'
