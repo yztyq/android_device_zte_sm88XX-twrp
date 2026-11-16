@@ -194,14 +194,14 @@ jobs:
         with:
           path: device/${{ github.event.inputs.DEVICE_PATH }}
 
-      - name: Patch recovery touch input for NX809J
+         - name: Patch recovery touch input for NX809J
         run: |
           set -e
           python3 - <<'PY'
           from pathlib import Path
 
-          events = Path("bootable/recovery/minuitwrp/events.cpp")
-          text = events.read_text()
+          inp = Path("bootable/recovery/twrpminui/twrp_input.cpp")
+          text = inp.read_text()
           old_key_block = (
               "\t// Handle keyboard events, value of 1 indicates key down, 0 indicates key up\n"
               "\tif (ev->type == EV_KEY) {\n"
@@ -217,29 +217,25 @@ jobs:
               "\t}\n"
           )
           if old_key_block not in text:
-              raise SystemExit("events.cpp key handling block not found")
-          text = text.replace(
-              old_key_block,
-              new_key_block,
-          )
-          old_scale_block = (
-              "    *x = (p->x - p->xi.minimum) * (fb_width - 1) / (p->xi.maximum - p->xi.minimum);\n"
-              "    *y = (p->y - p->yi.minimum) * (fb_height - 1) / (p->yi.maximum - p->yi.minimum);\n"
+              raise SystemExit("twrp_input.cpp key handling block not found")
+          text = text.replace(old_key_block, new_key_block)
+          old_scale_anchor = (
+              "    const bool swap_axes = rotation == 90 || rotation == 270;\n"
           )
           new_scale_block = (
               "    if (p->xi.maximum > fb_width * 4 && p->yi.maximum > fb_height * 4 &&\n"
               "        p->x >= 0 && p->x < fb_width && p->y >= 0 && p->y < fb_height) {\n"
               "        *x = p->x;\n"
               "        *y = p->y;\n"
-              "    } else {\n"
-              "        *x = (p->x - p->xi.minimum) * (fb_width - 1) / (p->xi.maximum - p->xi.minimum);\n"
-              "        *y = (p->y - p->yi.minimum) * (fb_height - 1) / (p->yi.maximum - p->yi.minimum);\n"
+              "        return 0;\n"
               "    }\n"
+              "\n"
+              "    const bool swap_axes = rotation == 90 || rotation == 270;\n"
           )
-          if old_scale_block not in text:
-              raise SystemExit("events.cpp touch scale block not found")
-          text = text.replace(old_scale_block, new_scale_block)
-          events.write_text(text)
+          if old_scale_anchor not in text:
+              raise SystemExit("twrp_input.cpp swap_axes anchor not found")
+          text = text.replace(old_scale_anchor, new_scale_block)
+          inp.write_text(text)
           PY
 
       - name: Patch recovery haptics for NX809J
@@ -248,8 +244,8 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          events = Path("bootable/recovery/minuitwrp/events.cpp")
-          text = events.read_text()
+          hap = Path("bootable/recovery/twrpminui/haptics.cpp")
+          text = hap.read_text()
           old = (
               '#define LEDS_HAPTICS_DURATION_FILE\t"/sys/class/leds/vibrator/duration"\n'
               '#define LEDS_HAPTICS_ACTIVATE_FILE\t"/sys/class/leds/vibrator/activate"\n'
@@ -259,8 +255,8 @@ jobs:
               '#define LEDS_HAPTICS_ACTIVATE_FILE\t"/sys/class/leds/zte_vibrator/activate_aw"\n'
           )
           if old not in text:
-              raise SystemExit("events.cpp LED haptics path block not found")
-          events.write_text(text.replace(old, new))
+              raise SystemExit("haptics.cpp LED haptics path block not found")
+          hap.write_text(text.replace(old, new))
           PY
 
       - name: Build TWRP
