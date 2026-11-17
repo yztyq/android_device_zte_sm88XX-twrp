@@ -270,36 +270,106 @@ jobs:
       - name: Patch vold gatekeeper diagnostics for NX809J
         run: |
           set -e
+          cat > /tmp/nf12_gk_block.cpp <<'CPP'
+                  AidlGatekeeperVerifyResp rsp;
+                  {
+                      const unsigned char* hp = static_cast<const unsigned char*>(password_handle);
+                      unsigned long long sid64 = 0;
+                      if (handle_len >= 9)
+                          for (int i = 7; i >= 0; --i) sid64 = (sid64 << 8) | hp[1 + i];
+                      printf("GKREQ handle_len=%zu sidField=%llu fakeUid=%llu\n",
+                             handle_len, sid64, (unsigned long long)fakeUid(user_id));
+                      printf("GKREQ handle_hex=");
+                      for (size_t i = 0; i < handle_len && i < 58; i++) printf("%02x", hp[i]);
+                      printf("\nGKREQ gkpwd_hex=");
+                      for (int i = 0; i < 32; i++)
+                          printf("%02x", ((const unsigned char*)gk_pwd_token)[i]);
+                      printf("\n");
+                  }
+                  bool gk_ok = false;
+                  auto gk_try = [&](int uid_try, const char* tag) {
+                      auto res = aidl_gk_device->verify(uid_try, 0, pwd_handle_hidl,
+                                                        gk_pwd_token_hidl, &rsp);
+                      if (res.isOk()) {
+                          printf("GKTRY %s uid=%d OK statusCode=%d\n", tag, uid_try, (int)rsp.statusCode);
+                          return true;
+                      }
+                      printf("GKTRY %s uid=%d FAIL exc=%d svc=%d\n", tag, uid_try,
+                             (int)res.getExceptionCode(), (int)res.getServiceSpecificError());
+                      return false;
+                  };
+                  gk_ok = gk_try((int)fakeUid(user_id), "asis");
+                  if (!gk_ok) {
+                      uid_t saved_euid = geteuid();
+                      if (seteuid(1000) == 0) {
+                          gk_ok = gk_try((int)fakeUid(user_id), "euid1000");
+                          seteuid(saved_euid);
+                      } else {
+                          printf("GKTRY euid1000 seteuid failed\n");
+                      }
+                      if (!gk_ok) gk_ok = gk_try(1000, "uid1000");
+                      if (!gk_ok) gk_ok = gk_try(0, "uid0");
+                  }
+                  free(gk_pwd_token);
+                  if (!gk_ok) {
+                      printf("GKFAIL all-attempts-failed\n");
+                      return true;
+                  }
+          CPP
           python3 - <<'PY'
           import re
           from pathlib import Path
 
           dec = Path("system/vold/Decrypt.cpp")
           text = dec.read_text()
+          block = Path("/tmp/nf12_gk_block.cpp").read_text().rstrip("\n") + "\n"
+
+          if "#include <unistd.h>" not in text:
+              mi = re.search(r'^#include [<"].*?[>"]\n', text, re.M)
+              if mi is None:
+                  raise SystemExit("no #include anchor for unistd.h")
+              text = text[:mi.end()] + "#include <unistd.h>\n" + text[mi.end():]
+
+          anchor = "    // Optional trailing pin length, absent on old protectors"
+          if anchor not in text:
+              raise SystemExit("Get_Password_Data anchor not found")
+          if "GKPWD len=" not in text:
+              dump = (
+                  '    printf("GKPWD len=%zu credType=%d logN=%u logR=%u logP=%u saltLen=%d handleLen=%d\\n",\n'
+                  '           pwd_data.size(), pwd->credential_type, (unsigned)pwd->scrypt_log_n,\n'
+                  '           (unsigned)pwd->scrypt_log_r, (unsigned)pwd->scrypt_log_p,\n'
+                  '           pwd->salt_len, pwd->handle_len);\n'
+                  '    printf("GKPWD salt_hex=");\n'
+                  '    for (int i = 0; i < pwd->salt_len && i < 32; i++)\n'
+                  '        printf("%02x", ((const unsigned char*)pwd->salt)[i]);\n'
+                  '    printf("\\n");\n'
+              )
+              text = text.replace(anchor, dump + anchor, 1)
+
           pat = re.compile(
-              r'[ \t]*if \(!result\.isOk\(\)\) \{\s*'
+              r'[ \t]*AidlGatekeeperVerifyResp rsp;\s*'
+              r'const auto result = aidl_gk_device->verify\(.*?\);\s*'
+              r'free\(gk_pwd_token\);\s*'
+              r'if \(!result\.isOk\(\)\) \{\s*'
               r'printf\("gatekeeper verification failed\\n"\);\s*'
-              r'return false;\s*\}'
-          )
+              r'return false;\s*\}', re.S)
           m = pat.search(text)
           if m is None:
-              raise SystemExit("Decrypt.cpp gatekeeper verify block not found, matches="
-                               + str(text.count("gatekeeper verification failed")))
-          new = (
-              '        if (!result.isOk()) {\n'
-              '            printf("GKFAIL exception=%d svcerr=%d\\n",\n'
-              '                   (int)result.getExceptionCode(),\n'
-              '                   (int)result.getServiceSpecificError());\n'
-              '            return true;\n'
-              '        }'
-          )
-          text = text[:m.start()] + new + text[m.end():]
+              raise SystemExit("verify block not found, occurrences=" +
+                               str(text.count("gatekeeper verification failed")))
+          text = text[:m.start()] + block + text[m.end():]
           dec.write_text(text)
-          if text.count("GKFAIL exception=") != 1:
-              raise SystemExit("gatekeeper patch verification failed")
-          print("vold patched, GKFAIL markers:", text.count("GKFAIL exception="))
-          PY
 
+          if text.count("GKPWD len=") != 1:
+              raise SystemExit("GKPWD marker count wrong")
+          if text.count("GKREQ handle_len=") != 1:
+              raise SystemExit("GKREQ marker count wrong")
+          if text.count("GKFAIL all-attempts-failed") != 1:
+              raise SystemExit("GKFAIL marker count wrong")
+          if "const auto result" in text:
+              raise SystemExit("old verify call still present")
+          print("vold patched: GKPWD / GKREQ / GKTRY / GKFAIL markers ok")
+          PY
       - name: Build TWRP
         run: |
           set -e
