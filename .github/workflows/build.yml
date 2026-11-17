@@ -279,17 +279,17 @@ jobs:
                                + str(text.count("gatekeeper verification failed")))
           new = (
               '        if (!result.isOk()) {\n'
-              '            printf("GKFAIL status=%d exc=%d svc=%d\\n",\n'
-              '                   (int)result.getStatus(), (int)result.getExceptionCode(),\n'
-              '                   (int)result.getServiceSpecificErrorCode());\n'
+              '            printf("GKFAIL exception=%d svcerr=%d\\n",\n'
+              '                   (int)result.getExceptionCode(),\n'
+              '                   (int)result.getServiceSpecificError());\n'
               '            return true;\n'
               '        }'
           )
           text = text[:m.start()] + new + text[m.end():]
           dec.write_text(text)
-          if text.count("GKFAIL status=") != 1:
+          if text.count("GKFAIL exception=") != 1:
               raise SystemExit("gatekeeper patch verification failed")
-          print("vold patched, GKFAIL markers:", text.count("GKFAIL status="))
+          print("vold patched, GKFAIL markers:", text.count("GKFAIL exception="))
           PY
 
       - name: Build TWRP
