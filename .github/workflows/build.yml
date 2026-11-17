@@ -267,6 +267,13 @@ jobs:
           export SOONG_UI_NINJA_ARGS="-j1"
           source build/envsetup.sh
           lunch "twrp_${{ github.event.inputs.LUNCH_TARGET }}"
+          # --- fix: host depmod is not provided by TWRP manifest -> seed it from host kmod ---
+          sudo apt-get install -y kmod
+          mkdir -p out/host/linux-x86/bin
+          DEPMOD_BIN="$(command -v depmod || echo /usr/sbin/depmod)"
+          ln -sf "${DEPMOD_BIN}" out/host/linux-x86/bin/depmod
+          echo "Seeded host depmod from ${DEPMOD_BIN}"
+          out/host/linux-x86/bin/depmod -V 2>&1 | head -2 || true
           {
             echo "Disk before build:"
             df -h
