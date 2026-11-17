@@ -95,8 +95,16 @@ jobs:
 
       - name: Setup swap
         run: |
+          set -e
+          AVAIL_G=$(df -Pk / | awk 'NR==2{print int($4/1024/1024)}')
+          echo "Root filesystem free: ${AVAIL_G}G"
+          df -h /
+          # -j1 并发下 8G swap 足够；24G swap 会白占 16G 磁盘，
+          # 而 out/ 膨胀到 70 分钟时最容易把盘写满（表现为 runner lost communication）
+          if [ "${AVAIL_G}" -lt 140 ]; then SWAP=8G; else SWAP=24G; fi
+          echo "Swap size: ${SWAP}"
           sudo swapoff -a || true
-          sudo fallocate -l 24G /swapfile
+          sudo fallocate -l "${SWAP}" /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
