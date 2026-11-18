@@ -1,0 +1,29 @@
+# nf10: verbatim from /vendor/etc/init/hlosminkdaemon.rc, plus the bits
+# this recovery needs. This daemon is the binder front end of smcinvoke:
+# it owns /dev/socket/ssgtzd and /dev/socket/hlos_mink_opener, and
+# vendor.qti.hardware.minkipcbinder@1.0-service cannot connect without
+# them (measured: SockAgnostic_connect errno 2 = ENOENT).
+#
+# The sockets are created by init from the "socket" directives below and
+# handed to the daemon as inherited fds, so the daemon must be started by
+# init -- launching it by hand from a shell cannot create them.
+#
+# Dropped from the vendor original: "on early-boot start vendor.minkdaemon"
+# (in this recovery early-boot fires ~11 s before /vendor is mounted, so it
+# could only fail) and "mkdir /data/vendor/qwes" (qwes has nothing to do
+# with the TA channel, and /data is still encrypted at post-fs-data).
+
+service vendor.minkdaemon /vendor/bin/hlosminkdaemon
+    class late_start
+    user system
+    group system oem_2912 wakelock
+    capabilities WAKE_ALARM BLOCK_SUSPEND
+    disabled
+    socket ssgtzd stream 0660 system oem_2912
+    socket hlos_mink_opener stream 0660 system system
+    # nf10: same reason as the other QTI HALs -- init cannot derive a
+    # domain from the vendor file label in this recovery.
+    seclabel u:r:recovery:s0
+
+on property:vendor.minkdaemon.go=1
+    start vendor.minkdaemon
