@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 360
 
     steps:
@@ -99,15 +99,17 @@ jobs:
           AVAIL_G=$(df -Pk / | awk 'NR==2{print int($4/1024/1024)}')
           echo "Root filesystem free: ${AVAIL_G}G"
           df -h /
-          # -j1 并发下 8G swap 足够；24G swap 会白占 16G 磁盘，
-          # 而 out/ 膨胀到 70 分钟时最容易把盘写满（表现为 runner lost communication）
-          if [ "${AVAIL_G}" -lt 140 ]; then SWAP=8G; else SWAP=24G; fi
+          # 分析阶段 soong_build 会有瞬时内存峰值，用 12G swap 兜底；
+          # 不取 24G：磁盘仅剩 44G，swap 过大会把 out/ 可用空间压到 20G 以下（ENOSPC 风险）。
+          SWAP=12G
+          echo "Avail: ${AVAIL_G}G"
           echo "Swap size: ${SWAP}"
           sudo swapoff -a || true
           sudo fallocate -l "${SWAP}" /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          sudo sysctl -w vm.swappiness=10
           free -h
           swapon --show || true
           df -h
@@ -822,6 +824,12 @@ jobs:
           mkdir -p artifacts
           export USE_CCACHE=0
           export SOONG_UI_NINJA_ARGS="-j1"
+          # soong_build / soong_ui 是 Go 程序：限住堆峰值、减少并行解析线程，
+          # 宁可多花 CPU 做 GC，也不要在解析 Android.bp 时把内存冲到 15Gi。
+          export GOMEMLIMIT=6GiB
+          export GOGC=60
+          export GOMAXPROCS=2
+          echo "nproc=$(nproc) cgroup=$(stat -fc %T /sys/fs/cgroup)"
           source build/envsetup.sh
           lunch "twrp_${{ github.event.inputs.LUNCH_TARGET }}"
           sudo apt-get install -y kmod
@@ -838,10 +846,15 @@ jobs:
             (
               while kill -0 "${build_pid}" 2>/dev/null; do
                 echo "Build heartbeat at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                ps -o pid,ppid,etime,%cpu,%mem,rss,cmd -p "${build_pid}" || true
-                free -h || true
-                df -h / || true
-                sleep 60
+                free -h | sed -n '1,3p'
+                echo "top mem:"
+                ps -eo pid,rss,pcpu,comm --sort=-rss | head -6
+                echo "children of build:"
+                ps --ppid "${build_pid}" -o pid,rss,pcpu,comm 2>/dev/null || true
+                echo -n "cgroup peak="; cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo n/a
+                echo -n "oom events: "; cat /sys/fs/cgroup/memory.events 2>/dev/null | tr '\n' ' ' || true; echo
+                df -h / | tail -1
+                sleep 30
               done
             ) &
             heartbeat_pid=$!
@@ -865,6 +878,12 @@ jobs:
           mkdir -p artifacts
           export USE_CCACHE=0
           export SOONG_UI_NINJA_ARGS="-j1"
+          # soong_build / soong_ui 是 Go 程序：限住堆峰值、减少并行解析线程，
+          # 宁可多花 CPU 做 GC，也不要在解析 Android.bp 时把内存冲到 15Gi。
+          export GOMEMLIMIT=6GiB
+          export GOGC=60
+          export GOMAXPROCS=2
+          echo "nproc=$(nproc) cgroup=$(stat -fc %T /sys/fs/cgroup)"
           source build/envsetup.sh
           lunch "twrp_${{ github.event.inputs.LUNCH_TARGET }}"
           {
@@ -876,10 +895,15 @@ jobs:
             (
               while kill -0 "${build_pid}" 2>/dev/null; do
                 echo "Build heartbeat at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                ps -o pid,ppid,etime,%cpu,%mem,rss,cmd -p "${build_pid}" || true
-                free -h || true
-                df -h / || true
-                sleep 60
+                free -h | sed -n '1,3p'
+                echo "top mem:"
+                ps -eo pid,rss,pcpu,comm --sort=-rss | head -6
+                echo "children of build:"
+                ps --ppid "${build_pid}" -o pid,rss,pcpu,comm 2>/dev/null || true
+                echo -n "cgroup peak="; cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo n/a
+                echo -n "oom events: "; cat /sys/fs/cgroup/memory.events 2>/dev/null | tr '\n' ' ' || true; echo
+                df -h / | tail -1
+                sleep 30
               done
             ) &
             heartbeat_pid=$!
