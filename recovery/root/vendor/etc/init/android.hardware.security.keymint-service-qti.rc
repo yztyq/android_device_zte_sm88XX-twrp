@@ -3,7 +3,11 @@
 # Confidential and Proprietary - Qualcomm Technologies, Inc.
 
 on init
-    start vendor.keymint-qti
+    # nf2: disabled. This is the SPU/strongbox flavour; on this device it aborts
+    # with "Check failed: status == STATUS_OK" and crash-loops forever because
+    # IKeyMintDevice/strongbox is not declared in the recovery VINTF manifest.
+    # The TEE instance (vendor.keymint, onekeymint) is the one keystore2 uses.
+    #start vendor.keymint-qti
 
 service vendor.keymint-qti /vendor/bin/hw/android.hardware.security.keymint-service-spu-qti
     class early_hal
