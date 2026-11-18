@@ -28,9 +28,7 @@ for dev in /sys/class/input/input*; do
     fi
 done
 
-# Architectural bypass:
-# If we successfully removed the garbage inputs, we kill the recovery process.
-# Android init will instantly respawn it, but this time in a clean environment.
-if [ "$deleted" -eq 1 ]; then
-    killall recovery
-fi
+# nf1: the stock "killall recovery" block was removed. Init respawns recovery
+# anyway, but the respawned instance inherits twrp.decrypt.done and skips the
+# FBE unlock, leaving /data with encrypted file names. The cleanup above is
+# enough on its own.
