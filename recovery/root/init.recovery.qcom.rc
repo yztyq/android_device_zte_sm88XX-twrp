@@ -97,3 +97,5 @@ on boot
 	
 
 
+
+    chmod 0755 /system/bin/tpd_boot.sh
