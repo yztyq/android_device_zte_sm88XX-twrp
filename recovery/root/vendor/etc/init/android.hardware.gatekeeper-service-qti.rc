@@ -1,13 +1,21 @@
-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-# All rights reserved.
-# Confidential and Proprietary - Qualcomm Technologies, Inc. 
-
-service vendor.gatekeeper_default /vendor/bin/hw/android.hardware.gatekeeper-service-spu-qti
+# nf5: the stub vendor only ships the SPU flavour
+# (android.hardware.gatekeeper-service-spu-qti, root / u:r:recovery:s0), which
+# aborted on every verify and made TWRP report "凭证不正确". The phone's own
+# vendor carries the rust implementation, which Android runs as uid 1000.
+#
+# No "disabled" here on purpose: with disabled + "enable" on a property init
+# would still start it before /vendor is mounted, and the binary does not
+# exist yet at that point. class early_hal is never started by this recovery's
+# init.rc either, so the service comes up exactly once, via
+# "setprop ctl.start vendor.gatekeeper_default" from tpd_boot.sh, after the
+# real vendor has been mounted.
+service vendor.gatekeeper_default /vendor/bin/hw/android.hardware.gatekeeper-rust-service-qti
     class early_hal
-    user root
-    group root
-    disabled
+    user system
+    group system
+    # nf7: without this init tries to derive the domain from the binary's file
+    # label (vendor_hal_gatekeeper_qti_exec) and refuses to start it:
+    #   "is not valid (left unmapped)" / "Could not get process context".
+    # recovery is defined in this recovery's policy, and SELinux here is
+    # permissive, so this is the sane domain for a HAL we start by hand.
     seclabel u:r:recovery:s0
-
-on property:vendor.gatekeeper.is_security_level_spu=0
-    enable vendor.gatekeeper_default
