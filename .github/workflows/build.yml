@@ -816,7 +816,7 @@ jobs:
           print("gui2 extra tools patch applied")
           PY
 
-      - name: Build TWRP
+      - name: Build TWRP phase 1 (soong analysis, m nothing)
         run: |
           set -e
           mkdir -p artifacts
@@ -824,17 +824,52 @@ jobs:
           export SOONG_UI_NINJA_ARGS="-j1"
           source build/envsetup.sh
           lunch "twrp_${{ github.event.inputs.LUNCH_TARGET }}"
-          # --- fix: host depmod is not provided by TWRP manifest -> seed it from host kmod ---
           sudo apt-get install -y kmod
           mkdir -p out/host/linux-x86/bin
           DEPMOD_BIN="$(command -v depmod || echo /usr/sbin/depmod)"
           ln -sf "${DEPMOD_BIN}" out/host/linux-x86/bin/depmod
           echo "Seeded host depmod from ${DEPMOD_BIN}"
-          out/host/linux-x86/bin/depmod -V 2>&1 | head -2 || true
           {
-            echo "Disk before build:"
+            echo "=== phase 1: soong analysis (m nothing) at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
             df -h
-            echo "Memory before build:"
+            free -h
+            m -j1 nothing &
+            build_pid=$!
+            (
+              while kill -0 "${build_pid}" 2>/dev/null; do
+                echo "Build heartbeat at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                ps -o pid,ppid,etime,%cpu,%mem,rss,cmd -p "${build_pid}" || true
+                free -h || true
+                df -h / || true
+                sleep 60
+              done
+            ) &
+            heartbeat_pid=$!
+            set +e
+            wait "${build_pid}"
+            build_status=$?
+            kill "${heartbeat_pid}" 2>/dev/null || true
+            wait "${heartbeat_pid}" 2>/dev/null || true
+            set -e
+            test "${build_status}" -eq 0
+            echo "=== phase 1 done at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+            df -h
+            free -h
+          } 2>&1 | tee artifacts/build-phase1.log
+          test "${PIPESTATUS[0]}" -eq 0
+          ls -l build.ninja out/build.ninja 2>/dev/null || true
+
+      - name: Build TWRP phase 2 (compile recoveryimage)
+        run: |
+          set -e
+          mkdir -p artifacts
+          export USE_CCACHE=0
+          export SOONG_UI_NINJA_ARGS="-j1"
+          source build/envsetup.sh
+          lunch "twrp_${{ github.event.inputs.LUNCH_TARGET }}"
+          {
+            echo "=== phase 2: compile ${{ github.event.inputs.BUILD_PARTITION }}image at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+            df -h
             free -h
             m -j1 "${{ github.event.inputs.BUILD_PARTITION }}image" &
             build_pid=$!
@@ -855,23 +890,22 @@ jobs:
             wait "${heartbeat_pid}" 2>/dev/null || true
             set -e
             test "${build_status}" -eq 0
-            echo "Disk after build:"
+            echo "=== phase 2 done at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
             df -h
-            echo "Memory after build:"
             free -h
           } 2>&1 | tee artifacts/build.log
           test "${PIPESTATUS[0]}" -eq 0
           cp "out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_PARTITION }}.img" \
              "artifacts/TWRP-4.0.0-16-${{ github.event.inputs.DEVICE_NAME }}-${{ github.event.inputs.BUILD_PARTITION }}-${{ github.run_id }}.img"
-
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: TWRP-build-log-${{ github.run_id }}
-          path: artifacts/build.log
+          path: artifacts/build*.log
 
       - name: Upload artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: TWRP-4.0.0-16-${{ github.event.inputs.DEVICE_NAME }}-${{ github.event.inputs.BUILD_PARTITION }}-${{ github.run_id }}
