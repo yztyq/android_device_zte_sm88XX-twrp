@@ -1,0 +1,23 @@
+# Copyright (c) 2023 Qualcomm Technologies, Inc.
+# All Rights Reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+
+
+service minkipcbinder-service /vendor/bin/hw/vendor.qti.hardware.minkipcbinder@1.0-service
+   class hal
+   user system
+   group system
+   interface aidl vendor.qti.hardware.minkipcbinder.IMinkServer/default
+   disabled
+   oneshot
+    # nf9: init cannot derive a domain from the vendor file label in this
+    # recovery ("is not valid (left unmapped)"), and SELinux here is
+    # permissive, so pin the domain explicitly like the other QTI HALs.
+    seclabel u:r:recovery:s0
+
+# nf9: the binary only exists once the real vendor partition is mounted,
+# so it cannot be part of class_start hal. tpd_boot.sh fires this after it
+# has mounted /vendor itself, one second before the gatekeeper trigger.
+on property:vendor.mink.go=1
+    start minkipcbinder-service
