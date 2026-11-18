@@ -1,1 +1,12 @@
-# TWRP 4.0.0  ZTE SM88XX / NX809J
+# TWRP 4.0.0  ZTE  NX809J
+真机测试：红魔11pro+
+努比亚Z80Ultra未测试;
+
+正常工作：
+1、触控正常；
+2、fastboot正常
+3、电量显示正常
+4、解密data正常
+
+bug：
+1、暂未发现
