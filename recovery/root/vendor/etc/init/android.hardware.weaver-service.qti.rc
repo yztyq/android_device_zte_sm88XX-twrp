@@ -1,5 +1,17 @@
-service vendor.weaver-service /vendor/bin/hw/android.hardware.weaver-service-spu-qti
-    class hal
-    user root
-    group nfc root
-    seclabel u:r:recovery:s0
+# nf9: vendor.weaver-service removed on purpose.
+#
+# The A-version ramdisk shipped the SPU flavour
+# (android.hardware.weaver-service-spu-qti) with "class hal". Measured on
+# nf8: init starts it from class_start hal before /vendor exists, and it
+# aborts every run --
+#     android.hardware.weaver-service-spu-qti: Check failed:
+#         status == STATUS_OK (status=-3)
+#     received signal 6
+# i.e. a 5-second crash loop for the whole session, dozens of restarts,
+# which only polluted the logcat window used to debug gatekeeper.
+#
+# The real vendor has no weaver manifest fragment and no weaver rc at all:
+# on this platform weaver is served by the OneKeyMint HAL together with
+# keymint (vendor.gatekeeper.is_security_level_spu=0). TWRP does not call
+# the weaver HAL anyway -- it reads /data/system_de/0/spblob/<handle>.weaver
+# directly and falls back to the secdis blob, which is what happens here.
