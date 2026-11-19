@@ -20,9 +20,6 @@ TWRP 源来自 TWRP-Test/platform_manifest_twrp_aosp
 
 6、文件管理正常
 
-
-以下为进阶功能部分
-
 7、一键root
 
 8、备份分区
