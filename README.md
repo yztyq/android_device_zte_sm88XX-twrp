@@ -19,7 +19,7 @@ Confirmed working:
 10. One-tap boot into 9008 (EDL) mode
 11. One-tap disable Magisk modules (useful when a broken module has been installed)
 12. OTA update — not tested (no OTA package available)
-
+**Bug reports:** please contact @倚窗听雨潜 on Coolapk (酷安).
 
 
 
@@ -52,11 +52,11 @@ TWRP 源来自 TWRP-Test/platform_manifest_twrp_aosp (https://github.com/TWRP-Te
 
 9、还原分区
 
-9、一键进入9008
+10、一键进入9008
 
-10、一键关闭面具模组 (安装不正确模组可以使用）
+11、一键关闭面具模组 (安装不正确模组可以使用）
 
-11、更新ota。（没有包，没有进行测试）
+12、更新ota。（没有包，没有进行测试）
 
-
+bug反馈：请前往酷安联系@ 倚窗听雨潜 。后期只会修复bug。
 
