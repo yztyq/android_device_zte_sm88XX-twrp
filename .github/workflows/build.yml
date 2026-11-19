@@ -1197,6 +1197,299 @@ jobs:
               ],
           )
 
+          # ---- 实时进度页 + 勾选保持滚动位置 ----------------------------------------
+          edit(
+              "pages/page_router.h",
+              [
+                  (
+                      """  TOOL_INPUT,
+            NF_TOOLS,
+          };""",
+                      """  TOOL_INPUT,
+            NF_TOOLS,
+            NF_PROGRESS,
+          };""",
+                  ),
+              ],
+          )
+
+          edit(
+              "gui2.cpp",
+              [
+                  (
+                      """#include <cstring>
+          #include <algorithm>""",
+                      """#include <cstring>
+          #include <algorithm>
+          #include <cstdio>
+          #include <cstdlib>
+          #include <fcntl.h>
+          #include <sys/stat.h>
+          #include <sys/types.h>
+          #include <sys/wait.h>""",
+                  ),
+                  (
+                      """static void nf_refresh_or_back(void);""",
+                      """static void nf_refresh_or_back(void);
+          static void show_nf_progress_page(page_transition transition);
+          static void nf_prog_tick(lv_timer_t* timer);
+          static void nf_prog_stop(void);
+          static void nf_start_job(const std::string& caption, const std::string& command);
+          static void nf_save_scroll(void);
+          static void nf_restore_scroll(void);""",
+                  ),
+                  (
+                      """static std::string nf_done_text;""",
+                      """static std::string nf_done_text;
+          // ---- live progress page -------------------------------------------------------
+          static lv_obj_t* nf_prog_status = nullptr;
+          static lv_obj_t* nf_prog_log = nullptr;
+          static lv_timer_t* nf_prog_timer = nullptr;
+          static pid_t nf_prog_pid = -1;
+          static bool nf_prog_finished = false;
+          static int nf_prog_rc = -1;
+          static std::string nf_prog_caption;
+          static const char* nf_prog_log_path = "/tmp/nf_run.log";
+          // ---- keep the picker scrolled where the user left it --------------------------
+          static bool nf_keep_scroll = false;
+          static int nf_scroll_outer = 0;
+          static int nf_scroll_inner = 0;""",
+                  ),
+                  (
+                      """static void nf_run_command(const std::string& title, const std::string& detail,
+                                     const std::string& command) {
+            if (tools == nullptr) return;
+            tool_request request;
+            request.job = gui2_backend::tool_job::COMMAND;
+            request.title = title.c_str();
+            request.summary = detail.c_str();
+            request.text = (detail + "\\n\\n" + command).c_str();
+            nf_running_text = "正在执行：" + title;
+            nf_done_text = "执行完成";
+            request.running = nf_running_text.c_str();
+            request.done = nf_done_text.c_str();
+            request.swipe = "滑动开始";
+            request.back = page_at(page_kind::NF_TOOLS);
+            request.after = request.back;
+            request.tone = gui2_pages::confirm_tone::INFO;
+            request.value = command + " </dev/null 2>&1";
+            open_tool_confirm(request);
+          }""",
+                      """static void nf_run_command(const std::string& title, const std::string& detail,
+                                     const std::string& command) {
+            nf_prog_caption = detail.empty() ? title : (title + " · " + detail);
+            nf_start_job(title, command);
+          }""",
+                  ),
+                  (
+                      """static void open_nf_main_menu(page_transition transition) {""",
+                      """static void nf_save_scroll(void) {
+            nf_scroll_outer = 0;
+            nf_scroll_inner = 0;
+            if (main_content == nullptr) return;
+            nf_scroll_outer = static_cast<int>(lv_obj_get_scroll_y(main_content));
+            lv_obj_t* body = lv_obj_get_child(main_content, 0);
+            if (body != nullptr) nf_scroll_inner = static_cast<int>(lv_obj_get_scroll_y(body));
+          }
+          
+          static void nf_restore_scroll(void) {
+            if (main_content == nullptr) return;
+            if (nf_scroll_outer > 0 && lv_obj_get_scroll_y(main_content) == 0)
+              lv_obj_scroll_to_y(main_content, nf_scroll_outer, LV_ANIM_OFF);
+            lv_obj_t* body = lv_obj_get_child(main_content, 0);
+            if (body != nullptr && nf_scroll_inner > 0)
+              lv_obj_scroll_to_y(body, nf_scroll_inner, LV_ANIM_OFF);
+          }
+          
+          static std::string nf_prog_tail(size_t keep) {
+            std::string all;
+            FILE* handle = std::fopen(nf_prog_log_path, "r");
+            if (handle == nullptr) return all;
+            char buffer[4096];
+            size_t got = 0;
+            while ((got = std::fread(buffer, 1, sizeof(buffer), handle)) > 0) all.append(buffer, got);
+            std::fclose(handle);
+            if (all.size() > keep) {
+              size_t start = all.size() - keep;
+              const size_t newline = all.find('\n', start);
+              start = (newline == std::string::npos) ? start : newline + 1;
+              all.erase(0, start);
+            }
+            return all;
+          }
+          
+          static void nf_prog_stop(void) {
+            if (nf_prog_timer != nullptr) {
+              lv_timer_delete(nf_prog_timer);
+              nf_prog_timer = nullptr;
+            }
+          }
+          
+          static void nf_prog_tick(lv_timer_t* timer) {
+            (void)timer;
+            if (nf_prog_pid > 0) {
+              int status = 0;
+              if (waitpid(nf_prog_pid, &status, WNOHANG) == nf_prog_pid) {
+                nf_prog_pid = -1;
+                nf_prog_rc = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+                nf_prog_finished = true;
+              }
+            }
+            std::string text = nf_prog_tail(3000);
+            const size_t mark = text.rfind("@@RC=");
+            if (mark != std::string::npos) {
+              nf_prog_rc = std::atoi(text.c_str() + mark + 5);
+              nf_prog_finished = true;
+              text.erase(mark);
+            }
+            if (nf_prog_log != nullptr)
+              lv_label_set_text(nf_prog_log, text.empty() ? "正在启动..." : text.c_str());
+            if (nf_prog_status != nullptr) {
+              if (nf_prog_finished)
+                lv_label_set_text(nf_prog_status, nf_prog_rc == 0 ? "执行完成：成功" : "执行完成：失败");
+              else
+                lv_label_set_text(nf_prog_status, "正在执行，请稍候...");
+            }
+            if (nf_prog_finished) nf_prog_stop();
+          }
+          
+          static void nf_prog_back(void) {
+            nf_prog_stop();
+            nf_prog_log = nullptr;
+            nf_prog_status = nullptr;
+            navigate_to(page_kind::NF_TOOLS, nullptr, page_transition::POP);
+          }
+          
+          static void nf_start_job(const std::string& caption, const std::string& command) {
+            nf_prog_caption = caption;
+            nf_prog_finished = false;
+            nf_prog_rc = -1;
+            std::remove(nf_prog_log_path);
+            std::remove("/tmp/nf_job.sh");
+            FILE* handle = std::fopen("/tmp/nf_job.sh", "w");
+            if (handle == nullptr) return;
+            std::fprintf(handle, "#!/system/bin/sh\n%s\nnf_rc=$?\necho \"@@RC=$nf_rc\"\n", command.c_str());
+            std::fclose(handle);
+            chmod("/tmp/nf_job.sh", 0755);
+            const pid_t pid = fork();
+            if (pid == 0) {
+              const int log_fd = open(nf_prog_log_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+              if (log_fd >= 0) {
+                dup2(log_fd, STDOUT_FILENO);
+                dup2(log_fd, STDERR_FILENO);
+                close(log_fd);
+              }
+              const int null_fd = open("/dev/null", O_RDONLY);
+              if (null_fd >= 0) {
+                dup2(null_fd, STDIN_FILENO);
+                close(null_fd);
+              }
+              execl("/system/bin/sh", "sh", "/tmp/nf_job.sh", static_cast<char*>(nullptr));
+              _exit(127);
+            }
+            nf_prog_pid = pid;
+            navigate_to(page_kind::NF_PROGRESS, nullptr, page_transition::PUSH);
+          }
+          
+          static void show_nf_progress_page(page_transition transition) {
+            create_page_scaffold(page_kind::NF_PROGRESS, false, "执行中", nf_prog_caption.c_str(), 0,
+                                 transition);
+            if (main_content == nullptr) return;
+            nf_prog_status = lv_label_create(main_content);
+            lv_label_set_text(nf_prog_status, "正在执行，请稍候...");
+            lv_obj_set_style_text_color(nf_prog_status, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_t* box = lv_obj_create(main_content);
+            lv_obj_set_width(box, lv_pct(100));
+            lv_obj_set_height(box, lv_pct(70));
+            lv_obj_set_style_pad_all(box, 6, 0);
+            lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(box, 0, 0);
+            lv_obj_set_scroll_dir(box, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_AUTO);
+            nf_prog_log = lv_label_create(box);
+            lv_obj_set_width(nf_prog_log, lv_pct(96));
+            lv_label_set_long_mode(nf_prog_log, LV_LABEL_LONG_WRAP);
+            lv_obj_set_style_text_color(nf_prog_log, lv_color_hex(0xE6E6E6), 0);
+            lv_label_set_text(nf_prog_log, "正在启动...");
+            nf_prog_stop();
+            nf_prog_timer = lv_timer_create(nf_prog_tick, 400, nullptr);
+          }
+          
+          static void open_nf_main_menu(page_transition transition) {""",
+                  ),
+                  (
+                      """  if (command.compare(0, 3, "@t:") == 0) {
+              nf_toggle(command.substr(3));
+              nf_refresh_current();
+              return;
+            }""",
+                      """  if (command.compare(0, 3, "@t:") == 0) {
+              nf_save_scroll();
+              nf_keep_scroll = true;
+              nf_toggle(command.substr(3));
+              nf_refresh_current();
+              return;
+            }""",
+                  ),
+                  (
+                      """static void show_nf_tools_page(page_transition transition) {
+            create_page_scaffold(page_kind::NF_TOOLS, false, nf_page_title, "", 0, transition);
+            nf_build_entries();
+            gui2_pages::nf_tools_page_options options;
+            options.content = main_content;
+            options.metrics = &ui;
+            options.event_callback = nf_row_event_cb;
+            options.press_guard_callback = press_cancel_guard_cb;
+            options.items = nf_entries.empty() ? nullptr : nf_entries.data();
+            options.item_count = nf_entries.size();
+            gui2_pages::build_nf_tools_page(options);
+          }""",
+                      """static void show_nf_tools_page(page_transition transition) {
+            create_page_scaffold(page_kind::NF_TOOLS, false, nf_page_title, "", 0, transition);
+            nf_build_entries();
+            gui2_pages::nf_tools_page_options options;
+            options.content = main_content;
+            options.metrics = &ui;
+            options.event_callback = nf_row_event_cb;
+            options.press_guard_callback = press_cancel_guard_cb;
+            options.items = nf_entries.empty() ? nullptr : nf_entries.data();
+            options.item_count = nf_entries.size();
+            gui2_pages::build_nf_tools_page(options);
+            if (nf_keep_scroll) {
+              nf_keep_scroll = false;
+              nf_restore_scroll();
+            }
+          }""",
+                  ),
+                  (
+                      """  } else if (page_router.current() == page_kind::NF_TOOLS) {
+              if (nf_mode != NF_M_NONE)
+                nf_refresh_or_back();
+              else
+                navigate_to(page_kind::HOME, nullptr, page_transition::POP);
+            } else if (!home_page_active) {""",
+                      """  } else if (page_router.current() == page_kind::NF_PROGRESS) {
+              nf_prog_back();
+            } else if (page_router.current() == page_kind::NF_TOOLS) {
+              if (nf_mode != NF_M_NONE)
+                nf_refresh_or_back();
+              else
+                navigate_to(page_kind::HOME, nullptr, page_transition::POP);
+            } else if (!home_page_active) {""",
+                  ),
+                  (
+                      """    case page_kind::NF_TOOLS:
+                show_nf_tools_page(request.transition);
+                return;""",
+                      """    case page_kind::NF_TOOLS:
+                show_nf_tools_page(request.transition);
+                return;
+              case page_kind::NF_PROGRESS:
+                show_nf_progress_page(request.transition);
+                return;""",
+                  ),
+              ],
+          )
           print("gui2 extra tools patch applied")
           PY
       - name: Build TWRP phase 1 (soong analysis, m nothing)
