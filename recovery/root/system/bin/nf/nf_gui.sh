@@ -1,68 +1,92 @@
 #!/system/bin/sh
 # nf_gui.sh —— 给 TWRP 界面按钮用的非交互入口（无 stdin、无提示）
-# 用法: nf_gui.sh <ota|backup|restore [目录]|edl|magisk_off|magisk_on|log>
+# 用法:
+#   nf_gui.sh ota <zip|payload.bin> [分区名...]   安装 OTA，只写指定的物理分区
+#   nf_gui.sh backup [分区名...]                  备份（不给分区则用默认组合）
+#   nf_gui.sh restore <目录> [img名...]           从目录还原（不给 img 则全部）
+#   nf_gui.sh edl | magisk_off | magisk_on | log
+#
+# 2026-11-19 v3：分区名支持裸名（boot），由 nf_dev() 自动补当前槽；
+#               备份/还原全流程带 MD5 校对。
 NF=$(cd "$(dirname "$0")" && pwd)
 . "$NF/nf_lib.sh"
 
 TWRP_DIR=/sdcard/TWRP
-KEY_PARTS="boot init_boot vendor_boot dtbo recovery"
+KEY_PARTS="boot init_boot vendor_boot dtbo recovery vbmeta"
 
-find_payload() {
-    for p in /sdcard/payload.bin /sdcard/ota/payload.bin /sdcard/Download/payload.bin \
-             /data/media/0/payload.bin "$TWRP_DIR"/payload.bin; do
-        [ -f "$p" ] && { echo "$p"; return; }
-    done
-    return 1
-}
-
-latest_backup() {
-    latest=""
-    for d in "$TWRP_DIR"/BF*; do
-        [ -d "$d" ] && latest=$d
-    done
-    echo "$latest"
+payload_from() {
+    src=$1
+    case "$src" in
+        *.zip)
+            W=/tmp/nf_payload
+            rm -rf "$W"; mkdir -p "$W" || return 1
+            nf_say "== 从 zip 取 payload.bin"
+            unzip -o -q "$src" payload.bin -d "$W" || return 1
+            [ -f "$W/payload.bin" ] || return 1
+            echo "$W/payload.bin"
+            ;;
+        *)
+            [ -f "$src" ] || return 1
+            echo "$src"
+            ;;
+    esac
 }
 
 case "$1" in
 ota)
-    NF_PDG=${NF_PDG:-$NF/payload-dumper-go}
-    [ -x "$NF_PDG" ] || nf_die "缺 payload-dumper-go: $NF_PDG"
-    payload=$(find_payload) || nf_die "没找到 payload.bin，请放到 /sdcard/payload.bin"
+    src=$2
+    shift 2 2>/dev/null
+    [ -n "$src" ] || nf_die "没有指定 OTA 文件"
+    payload=$(payload_from "$src") || nf_die "取 payload.bin 失败: $src"
     nf_say "== payload: $payload"
-    list=$("$NF_PDG" -l "$payload" 2>/dev/null | awk '{print $1}')
-    [ -n "$list" ] || nf_die "payload 解析失败（文件损坏或不是 OTA 包）"
-    parts=""
-    skipped=""
-    for p in $list; do
-        if [ -e "/dev/block/by-name/$p" ]; then
-            parts="$parts $p"
-        else
-            skipped="$skipped $p"
-        fi
-    done
-    [ -n "$parts" ] || nf_die "包里没有可直写的物理分区"
-    nf_say "== 可写分区:$parts"
-    [ -n "$skipped" ] && nf_say "== 跳过（逻辑分区）:$skipped"
-    sh "$NF/nf_ota.sh" "$payload" $parts
+    if [ $# -ge 1 ]; then
+        sh "$NF/nf_ota.sh" "$payload" "$@"
+    else
+        sh "$NF/nf_ota.sh" "$payload"
+    fi
     ;;
 backup)
-    # BF + 年月日时分秒，例如 BF20261118163851
+    if [ $# -ge 1 ]; then
+        parts="$*"
+    else
+        parts="$KEY_PARTS"
+    fi
     DEST="$TWRP_DIR/BF$(date +%Y%m%d%H%M%S)"
     nf_say "== 备份到 $DEST"
-    NF_DEST="$DEST" sh "$NF/nf_backup.sh" $KEY_PARTS
+    NF_DEST="$DEST" sh "$NF/nf_backup.sh" $parts
     ;;
 restore)
     dir=$2
-    [ -n "$dir" ] || dir=$(latest_backup)
-    [ -d "$dir" ] || nf_die "备份目录不存在: ${dir:-$TWRP_DIR/BF* 下没有任何备份}"
+    shift 2 2>/dev/null
+    [ -n "$dir" ] || nf_die "没有指定备份目录"
+    [ -d "$dir" ] || nf_die "目录不存在: $dir"
     nf_say "== 使用备份 $dir"
-    files=""
-    for f in "$dir"/*.img; do
-        [ -f "$f" ] || continue
-        p=$(basename "$f" .img)
-        [ -e "/dev/block/by-name/$p" ] && files="$files $f"
-    done
-    [ -n "$files" ] || nf_die "备份里没有可写回的分区镜像"
+    if [ $# -ge 1 ]; then
+        files=""
+        for n in "$@"; do
+            # 依次尝试：原样、补 .img、按当前槽换真实名（boot -> boot_a.img）
+            cand=""
+            for c in "$n" "${n%.img}.img"; do
+                [ -f "$dir/$c" ] && { cand="$dir/$c"; break; }
+            done
+            if [ -z "$cand" ]; then
+                dev=$(nf_dev "$n")
+                [ -n "$dev" ] && cand="$dir/$(basename "$dev").img"
+            fi
+            if [ -f "$cand" ]; then
+                files="$files $cand"
+            else
+                nf_say "[跳过] 目录里没有: $n"
+            fi
+        done
+        [ -n "$files" ] || nf_die "目录里没有选中的镜像"
+    else
+        files=""
+        for f in "$dir"/*.img; do
+            [ -f "$f" ] && files="$files $f"
+        done
+        [ -n "$files" ] || nf_die "目录里没有任何 .img"
+    fi
     sh "$NF/nf_restore.sh" $files
     ;;
 edl)
@@ -88,7 +112,7 @@ log)
     fi
     ;;
 *)
-    nf_say "用法: nf_gui.sh <ota|backup|restore [目录]|edl|magisk_off|magisk_on|log>"
+    nf_say "用法: nf_gui.sh <ota <文件> [分区]|backup [分区]|restore <目录> [img]|edl|magisk_off|magisk_on|log>"
     exit 1
     ;;
 esac
