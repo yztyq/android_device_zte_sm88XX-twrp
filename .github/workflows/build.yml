@@ -1186,6 +1186,17 @@ jobs:
               ],
           )
 
+          # 主界面左上角标题：源码里写死了 "YARP"，改成 "TWRP"
+          edit(
+              "gui2.cpp",
+              [
+                  (
+                      'create_page_scaffold(page_kind::HOME, true, "YARP", "", 0, transition);',
+                      'create_page_scaffold(page_kind::HOME, true, "TWRP", "", 0, transition);',
+                  ),
+              ],
+          )
+
           print("gui2 extra tools patch applied")
           PY
       - name: Build TWRP phase 1 (soong analysis, m nothing)
