@@ -1,4 +1,4 @@
-# TWRP 4.0.0  ZTE  SM8XX 
+# TWRP 4.0.0  ZTE  SM8XX  红魔11pro+  努比亚Z80Ultra 
 
 TWRP 源来自 TWRP-Test/platform_manifest_twrp_aosp
 
