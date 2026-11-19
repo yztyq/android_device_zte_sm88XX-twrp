@@ -1245,6 +1245,7 @@ jobs:
           // ---- live progress page -------------------------------------------------------
           static lv_obj_t* nf_prog_status = nullptr;
           static lv_obj_t* nf_prog_log = nullptr;
+          static lv_obj_t* nf_prog_box = nullptr;
           static lv_timer_t* nf_prog_timer = nullptr;
           static pid_t nf_prog_pid = -1;
           static bool nf_prog_finished = false;
@@ -1339,6 +1340,7 @@ jobs:
             std::string text = nf_prog_tail(3000);
             if (nf_prog_log != nullptr)
               lv_label_set_text(nf_prog_log, text.empty() ? "正在启动..." : text.c_str());
+            if (nf_prog_box != nullptr) lv_obj_scroll_to_y(nf_prog_box, 32000, LV_ANIM_OFF);
             if (nf_prog_status != nullptr) {
               if (nf_prog_finished)
                 lv_label_set_text(nf_prog_status, nf_prog_rc == 0 ? "执行完成：成功" : "执行完成：失败");
@@ -1388,6 +1390,7 @@ jobs:
             lv_label_set_text(nf_prog_status, "正在执行，请稍候...");
             lv_obj_set_style_text_color(nf_prog_status, lv_color_hex(0xFFFFFF), 0);
             lv_obj_t* box = lv_obj_create(main_content);
+            nf_prog_box = box;
             lv_obj_set_width(box, lv_pct(100));
             lv_obj_set_height(box, lv_pct(70));
             lv_obj_set_style_pad_all(box, 6, 0);
