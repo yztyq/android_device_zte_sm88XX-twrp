@@ -1,6 +1,32 @@
+## TWRP 4.0.0 · ZTE SM8XX · Red Magic 11 Pro+ / Nubia Z80 Ultra
+
+TWRP source: [TWRP-Test/platform_manifest_twrp_aosp](https://github.com/TWRP-Test/platform_manifest_twrp_aosp)
+
+Tested on: Red Magic 11 Pro+ (NX809J)
+Nubia Z80 Ultra: **untested**
+
+Confirmed working:
+
+1. Touch — working
+2. Fastboot — working
+3. Battery level display — working
+4. Data decryption — working
+5. TWRP backup and restore — working
+6. File manager — working
+7. One-tap root
+8. Back up partitions
+9. Restore partitions
+10. One-tap boot into 9008 (EDL) mode
+11. One-tap disable Magisk modules (useful when a broken module has been installed)
+12. OTA update — not tested (no OTA package available)
+
+
+
+
+
 # TWRP 4.0.0  ZTE  SM8XX  红魔11pro+  努比亚Z80Ultra 
 
-TWRP 源来自 TWRP-Test/platform_manifest_twrp_aosp
+TWRP 源来自 TWRP-Test/platform_manifest_twrp_aosp (https://github.com/TWRP-Test/platform_manifest_twrp_aosp)
 
 真机测试：红魔11pro+（NX809J）
 
