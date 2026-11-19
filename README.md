@@ -19,6 +19,7 @@ Confirmed working:
 10. One-tap boot into 9008 (EDL) mode
 11. One-tap disable Magisk modules (useful when a broken module has been installed)
 12. OTA update — not tested (no OTA package available)
+    
 **Bug reports:** please contact @倚窗听雨潜 on Coolapk (酷安).
 
 
