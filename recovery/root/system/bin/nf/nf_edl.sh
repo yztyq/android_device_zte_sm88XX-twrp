@@ -21,5 +21,5 @@ sleep 2
 echo edl > /proc/sys/kernel/boot_reason 2>/dev/null
 sleep 2
 
-nf_say "常规方式没生效，改用 QC 的 EDL 触发：把设备回落到 fastboot 后再 fastboot oem edl"
+nf_say "常规方式都没生效，回落到 bootloader；到 fastboot 后在电脑上执行 fastboot oem edl 或直接开 QFIL"
 setprop sys.powerctl reboot,bootloader

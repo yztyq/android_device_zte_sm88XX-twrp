@@ -37,30 +37,20 @@ done
 
 # 第二遍：写入 + 回读校验
 bad=0
+n=$#
+i=0
 for f in "$@"; do
+    i=$((i + 1))
     p=$(basename "$f" .img)
     dev=$(nf_dev "$p")
     isize=$(stat -c %s "$f")
     srcmd5=$(nf_md5 "$f")
-    nf_say "== 还原 $p -> $(basename "$dev")"
+    nf_step "$i" "$n" "正在还原 $p -> $(basename "$dev")"
     dd if="$f" of="$dev" bs=1M conv=fsync 2>/dev/null || nf_die "写入失败: $p"
     sync
-
-    if nf_ge 268435456 "$isize"; then
-        blocks=$((isize / 1048576))
-        dd if="$dev" of=/tmp/nf_chk.img bs=1M count=$blocks 2>/dev/null
-        devmd5=$(nf_md5 /tmp/nf_chk.img)
-        rm -f /tmp/nf_chk.img
-        if [ "$devmd5" = "$srcmd5" ]; then
-            nf_say "   写入完成  $(nf_human "$isize")  md5=$srcmd5  [回读一致]"
-        else
-            nf_say "   写入完成  $(nf_human "$isize")  回读 md5=$devmd5  [回读不一致]"
-            bad=$((bad + 1))
-        fi
-    else
-        nf_say "   写入完成（$(nf_human "$isize")）md5=$srcmd5（分区较大，跳过回读）"
-    fi
+    nf_check_part "$p" "$dev" "$isize" "$srcmd5" 还原 || bad=$((bad + 1))
 done
 
 nf_say "还原完成，不一致 $bad 个；请重启到系统验证"
+nf_note "共 $n 个分区，回读不一致 $bad 个"
 [ "$bad" -eq 0 ] || exit 1

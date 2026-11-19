@@ -39,36 +39,24 @@ nf_ge "$free" "$total" || nf_die "存储空间不足，请先清理 $DEST 所在
 : >"$DEST/md5.txt"
 ok=0
 bad=0
+n=$(echo $list | wc -w)
+i=0
 for name in $list; do
+    i=$((i + 1))
     dev="/dev/block/by-name/$name"
-    nf_say "== 备份 $name"
+    nf_step "$i" "$n" "正在备份 $name"
     dd if="$dev" of="$DEST/$name.img" bs=1M 2>/dev/null || nf_die "dd 读取失败: $name"
     sync
     size=$(stat -c %s "$DEST/$name.img" 2>/dev/null)
     md5=$(nf_md5 "$DEST/$name.img")
 
-    # 校对：把分区重新读一遍，和文件比 MD5（分区 ≤ 256MB 才做，避免双倍 IO 太慢）
-    devmd5=""
-    if nf_ge 268435456 "$size"; then
-        blocks=$((size / 1048576))
-        dd if="$dev" of=/tmp/nf_chk.img bs=1M count=$blocks 2>/dev/null
-        devmd5=$(nf_md5 /tmp/nf_chk.img)
-        rm -f /tmp/nf_chk.img
-    fi
-    if [ -n "$devmd5" ]; then
-        if [ "$devmd5" = "$md5" ]; then
-            nf_say "   $(nf_human "$size")  md5=$md5  [校对一致]"
-        else
-            nf_say "   $(nf_human "$size")  md5=$md5  设备=$devmd5  [校对不一致]"
-            bad=$((bad + 1))
-        fi
-    else
-        nf_say "   $(nf_human "$size")  md5=$md5  （分区较大，跳过回读校对）"
-    fi
+    # 回读设备与文件比 MD5（≤256MB 才做，大分区自动跳过）
+    nf_check_part "$name" "$dev" "$size" "$md5" 备份 || bad=$((bad + 1))
     echo "$name $size $md5" >>"$DEST/md5.txt"
     ok=$((ok + 1))
 done
 
 nf_say "备份完成: $DEST"
 nf_say "共 $ok 个分区，MD5 不一致 $bad 个；校验清单见 $DEST/md5.txt"
+nf_note "共 $ok 个分区，md5 不一致 $bad 个 → $(basename "$DEST")"
 [ "$bad" -eq 0 ] || exit 1

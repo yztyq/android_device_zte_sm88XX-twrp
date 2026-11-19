@@ -59,31 +59,22 @@ nf_say "== 解包分区: $want"
 
 n_ok=0
 bad=0
+n=$(ls "$OUT"/extracted_*.img 2>/dev/null | wc -w)
+i=0
 for img in "$OUT"/extracted_*.img; do
     [ -f "$img" ] || continue
+    i=$((i + 1))
     p=$(basename "$img" .img); p=${p#extracted_}
     dev=$(nf_dev "$p")
     if [ -z "$dev" ]; then
-        nf_say "[跳过] $p：本机没有这个物理分区"
+        nf_warn "$p：本机没有这个物理分区，跳过"
         continue
     fi
     isz=$(stat -c %s "$img")
-    nf_say "== 写入 $p -> $(basename "$dev")  ($(nf_human "$isz"))"
+    nf_step "$i" "$n" "正在写入 $p -> $(basename "$dev")"
     dd if="$img" of="$dev" bs=1M conv=fsync 2>/dev/null || nf_die "写入失败: $p"
     sync
-    md5=$(nf_md5 "$img")
-    if nf_ge 268435456 "$isz"; then
-        blocks=$((isz / 1048576))
-        dd if="$dev" of=/tmp/nf_chk.img bs=1M count=$blocks 2>/dev/null
-        devmd5=$(nf_md5 /tmp/nf_chk.img); rm -f /tmp/nf_chk.img
-        if [ "$devmd5" = "$md5" ]; then
-            nf_say "   md5=$md5  [回读一致]"
-        else
-            nf_say "   md5=$md5  回读=$devmd5  [回读不一致]"; bad=$((bad + 1))
-        fi
-    else
-        nf_say "   md5=$md5（分区较大，跳过回读）"
-    fi
+    nf_check_part "$p" "$dev" "$isz" "$(nf_md5 "$img")" 写入 || bad=$((bad + 1))
     n_ok=$((n_ok + 1))
 done
 
