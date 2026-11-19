@@ -1234,6 +1234,7 @@ jobs:
           static void show_nf_progress_page(page_transition transition);
           static void nf_prog_tick(lv_timer_t* timer);
           static void nf_prog_stop(void);
+          static void nf_prog_back(void);
           static void nf_start_job(const std::string& caption, const std::string& command);
           static void nf_save_scroll(void);
           static void nf_restore_scroll(void);""",
@@ -1336,12 +1337,6 @@ jobs:
               }
             }
             std::string text = nf_prog_tail(3000);
-            const size_t mark = text.rfind("@@RC=");
-            if (mark != std::string::npos) {
-              nf_prog_rc = std::atoi(text.c_str() + mark + 5);
-              nf_prog_finished = true;
-              text.erase(mark);
-            }
             if (nf_prog_log != nullptr)
               lv_label_set_text(nf_prog_log, text.empty() ? "正在启动..." : text.c_str());
             if (nf_prog_status != nullptr) {
@@ -1365,12 +1360,6 @@ jobs:
             nf_prog_finished = false;
             nf_prog_rc = -1;
             std::remove(nf_prog_log_path);
-            std::remove("/tmp/nf_job.sh");
-            FILE* handle = std::fopen("/tmp/nf_job.sh", "w");
-            if (handle == nullptr) return;
-            std::fprintf(handle, "#!/system/bin/sh\n%s\nnf_rc=$?\necho \"@@RC=$nf_rc\"\n", command.c_str());
-            std::fclose(handle);
-            chmod("/tmp/nf_job.sh", 0755);
             const pid_t pid = fork();
             if (pid == 0) {
               const int log_fd = open(nf_prog_log_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -1384,7 +1373,7 @@ jobs:
                 dup2(null_fd, STDIN_FILENO);
                 close(null_fd);
               }
-              execl("/system/bin/sh", "sh", "/tmp/nf_job.sh", static_cast<char*>(nullptr));
+              execl("/system/bin/sh", "sh", "-c", command.c_str(), static_cast<char*>(nullptr));
               _exit(127);
             }
             nf_prog_pid = pid;
