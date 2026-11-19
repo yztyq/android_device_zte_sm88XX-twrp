@@ -1312,7 +1312,7 @@ jobs:
             std::fclose(handle);
             if (all.size() > keep) {
               size_t start = all.size() - keep;
-              const size_t newline = all.find('\n', start);
+              const size_t newline = all.find(static_cast<char>(10), start);
               start = (newline == std::string::npos) ? start : newline + 1;
               all.erase(0, start);
             }
