@@ -58,5 +58,5 @@ TWRP 源来自 TWRP-Test/platform_manifest_twrp_aosp (https://github.com/TWRP-Te
 
 12、更新ota。（没有包，没有进行测试）
 
-bug反馈：请前往酷安联系@ 倚窗听雨潜 。后期只会修复bug。
+bug反馈：请前往酷安联系@ 倚窗听雨潜 ,后期大概率只会修bug。
 
